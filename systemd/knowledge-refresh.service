@@ -1,0 +1,11 @@
+[Unit]
+Description=LeadForge Knowledge Base Refresh (RSS poll + filter + rebuild)
+After=network.target
+
+[Service]
+Type=oneshot
+User=arjunsareen
+WorkingDirectory=/home/arjunsareen/cold-email-infra
+ExecStart=/home/arjunsareen/cold-email-infra/venv/bin/python -c "from generation.rss_poller import poll_and_ingest_new; poll_and_ingest_new()"
+EnvironmentFile=/home/arjunsareen/cold-email-infra/.env
+TimeoutStartSec=1800

@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly knowledge base refresh (Sunday 2am UTC)
+
+[Timer]
+OnCalendar=Sun *-*-* 02:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

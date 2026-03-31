@@ -72,6 +72,14 @@ JUNK_EMAIL_PATTERNS = {
     "wordpress", "squarespace", "godaddy", "hostgator"
 }
 
+# --- YouTube Channels (copywriter knowledge sources) ---
+YOUTUBE_CHANNELS = {
+    "leadgenjay": "https://www.youtube.com/@leadgenjay",
+    "ericnowoslawski": "https://www.youtube.com/@ericnowoslawski",
+    "InstantlyAI": "https://www.youtube.com/@InstantlyAI",
+    "GrowWithClay": "https://www.youtube.com/@GrowWithClay",
+}
+
 # --- Contact Page Paths ---
 CONTACT_PATHS = [
     "/", "/about", "/about-us", "/contact", "/contact-us",

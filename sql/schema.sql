@@ -143,7 +143,34 @@ CREATE TABLE IF NOT EXISTS training_corpus (
     title           TEXT,
     content         TEXT,
     summary         TEXT,
+    channel_handle  TEXT,
+    topic_tags      TEXT[],
+    relevance_score NUMERIC(3,2),
+    filtered_out    BOOLEAN DEFAULT FALSE,
+    published_at    TIMESTAMPTZ,
     ingested_at     TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_training_corpus_source_url
+    ON training_corpus(source_url) WHERE source_url IS NOT NULL;
+
+-- Topic-specific research documents (synthesized from training corpus)
+CREATE TABLE IF NOT EXISTS research_topics (
+    topic_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    topic_slug  TEXT UNIQUE NOT NULL,
+    title       TEXT NOT NULL,
+    content     TEXT,
+    version     INTEGER DEFAULT 1,
+    built_at    TIMESTAMPTZ DEFAULT now()
+);
+
+-- Ingestion cursors for RSS polling
+CREATE TABLE IF NOT EXISTS ingestion_cursors (
+    channel_handle  TEXT PRIMARY KEY,
+    channel_url     TEXT NOT NULL,
+    channel_id      TEXT,
+    last_video_date TIMESTAMPTZ,
+    last_checked    TIMESTAMPTZ DEFAULT now()
 );
 
 -- Scrape jobs (job log)
