@@ -14,8 +14,8 @@ from tracking.cost_tracker import track_cost
 
 logger = logging.getLogger(__name__)
 
-# Apify actors
-TRANSCRIPT_ACTOR = "starvibe/youtube-video-transcript"
+# Apify actors — use tilde format for the API URL
+TRANSCRIPT_ACTOR = "starvibe~youtube-video-transcript"
 
 
 def ingest_youtube_channel(channel_url: str, channel_handle: str = "",
