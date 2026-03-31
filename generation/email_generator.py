@@ -13,7 +13,7 @@ import os
 from anthropic import Anthropic
 from config import ANTHROPIC_API_KEY, SONNET_MODEL, HAIKU_MODEL
 from generation.knowledge_base import get_topic_documents, get_research_document
-from db import save_email_sequence, get_leads_for_email_gen
+from db import save_email_sequence, get_leads_for_email_gen, get_campaign_brief
 from tracking.cost_tracker import track_cost
 
 logger = logging.getLogger(__name__)
@@ -42,13 +42,15 @@ def generate_batch(campaign_id: str, batch_size: int = 100) -> dict:
     leads = get_leads_for_email_gen(campaign_id, batch_size)
     stats = {"generated": 0, "revised": 0, "errors": 0}
 
-    # Load research context once for the batch
+    # Load context once for the batch
     research_context = _get_smart_research_context()
+    brief = get_campaign_brief(campaign_id)
+    brief_context = _build_brief_context(brief) if brief else ""
 
     for lead in leads:
         try:
             sequences, was_revised = generate_sequence(
-                lead, research_context, campaign_id
+                lead, research_context, brief_context, campaign_id
             )
             if sequences:
                 save_email_sequence(str(lead["lead_id"]), campaign_id, sequences)
@@ -64,18 +66,31 @@ def generate_batch(campaign_id: str, batch_size: int = 100) -> dict:
 
 
 def generate_sequence(lead: dict, research_context: str,
+                      brief_context: str = "",
                       campaign_id: str = None) -> tuple:
     """Generate a 3-email sequence for a single lead.
     Returns (sequences_dict, was_revised)."""
     lead_context = _build_lead_context(lead)
 
-    prompt = f"""Generate a 3-email cold outreach sequence for this lead.
+    # Build the prompt with brief context if available
+    brief_section = ""
+    if brief_context:
+        brief_section = f"""
+## What You Are Selling
+{brief_context}
 
+IMPORTANT: Every email MUST clearly communicate the service above.
+Use the case study as social proof. Sign with the sender name. Use the specified CTA.
+"""
+
+    prompt = f"""Generate a 3-email cold outreach sequence for this lead.
+{brief_section}
+## Lead Details
 {lead_context}
 
 Rules:
-- Email 1: Initial outreach — value-first, personalized to their business
-- Email 2: Follow-up (3-5 days later) — different angle, add social proof
+- Email 1: Initial outreach — value-first, personalized to their business, clearly communicate what you offer
+- Email 2: Follow-up (3-5 days later) — different angle, use the case study as social proof
 - Email 3: Break-up (7-10 days later) — permission close, create urgency
 - Keep each email under 150 words
 - Use the owner's first name if available, otherwise use a natural greeting
@@ -252,6 +267,40 @@ def _build_lead_context(lead: dict) -> str:
         parts.append(f"Reviews: {lead['review_count']}")
     if lead.get("company_size"):
         parts.append(f"Company Size: {lead['company_size']}")
+    return "\n".join(parts)
+
+
+def _build_brief_context(brief: dict) -> str:
+    """Build prompt context from a campaign brief."""
+    import json as _json
+    parts = []
+    parts.append(f"Service: {brief['service_name']}")
+    if brief.get("service_detail"):
+        parts.append(f"What you deliver: {brief['service_detail']}")
+    if brief.get("value_prop"):
+        parts.append(f"Core value proposition: {brief['value_prop']}")
+    if brief.get("case_studies"):
+        studies = brief["case_studies"]
+        if isinstance(studies, str):
+            studies = _json.loads(studies)
+        if studies:
+            parts.append("Case studies / social proof:")
+            for cs in studies:
+                parts.append(f"  - {cs.get('summary', _json.dumps(cs))}")
+    sender = brief.get("sender_name", "{sender_name}")
+    title = brief.get("sender_title", "")
+    if title:
+        parts.append(f"Sign as: {sender}, {title}")
+    else:
+        parts.append(f"Sign as: {sender}")
+    cta_type = brief.get("cta_type", "call")
+    cta_detail = brief.get("cta_detail", "")
+    if cta_detail:
+        parts.append(f"CTA: {cta_detail}")
+    else:
+        parts.append(f"CTA type: {cta_type}")
+    if brief.get("custom_notes"):
+        parts.append(f"Custom instructions: {brief['custom_notes']}")
     return "\n".join(parts)
 
 

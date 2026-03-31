@@ -173,6 +173,23 @@ CREATE TABLE IF NOT EXISTS ingestion_cursors (
     last_checked    TIMESTAMPTZ DEFAULT now()
 );
 
+-- Campaign briefs (what the sender is selling + how to pitch it)
+CREATE TABLE IF NOT EXISTS campaign_briefs (
+    brief_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    campaign_id      UUID REFERENCES campaigns(campaign_id) UNIQUE,
+    service_name     TEXT NOT NULL,
+    service_detail   TEXT,
+    value_prop       TEXT,
+    case_studies     JSONB DEFAULT '[]',
+    sender_name      TEXT DEFAULT '{sender_name}',
+    sender_title     TEXT,
+    cta_type         TEXT DEFAULT 'call',
+    cta_detail       TEXT,
+    custom_notes     TEXT,
+    created_at       TIMESTAMPTZ DEFAULT now(),
+    updated_at       TIMESTAMPTZ DEFAULT now()
+);
+
 -- Scrape jobs (job log)
 CREATE TABLE IF NOT EXISTS scrape_jobs (
     job_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),

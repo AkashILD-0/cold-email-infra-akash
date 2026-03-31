@@ -178,6 +178,61 @@ def create_client(name: str, api_key: str, domains: list) -> str:
         conn.close()
 
 
+def create_campaign_brief(campaign_id: str, service_name: str, **kwargs) -> str:
+    """Create or update a campaign brief. Returns brief_id."""
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO campaign_briefs (
+                    campaign_id, service_name, service_detail, value_prop,
+                    case_studies, sender_name, sender_title, cta_type,
+                    cta_detail, custom_notes
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (campaign_id) DO UPDATE SET
+                    service_name = EXCLUDED.service_name,
+                    service_detail = EXCLUDED.service_detail,
+                    value_prop = EXCLUDED.value_prop,
+                    case_studies = EXCLUDED.case_studies,
+                    sender_name = EXCLUDED.sender_name,
+                    sender_title = EXCLUDED.sender_title,
+                    cta_type = EXCLUDED.cta_type,
+                    cta_detail = EXCLUDED.cta_detail,
+                    custom_notes = EXCLUDED.custom_notes,
+                    updated_at = now()
+                RETURNING brief_id
+            """, (
+                campaign_id, service_name,
+                kwargs.get("service_detail"),
+                kwargs.get("value_prop"),
+                json.dumps(kwargs.get("case_studies", [])),
+                kwargs.get("sender_name", "{sender_name}"),
+                kwargs.get("sender_title"),
+                kwargs.get("cta_type", "call"),
+                kwargs.get("cta_detail"),
+                kwargs.get("custom_notes"),
+            ))
+            result = cur.fetchone()
+            conn.commit()
+            return str(result[0])
+    finally:
+        conn.close()
+
+
+def get_campaign_brief(campaign_id: str) -> dict:
+    """Fetch the brief for a campaign. Returns dict or None."""
+    conn = get_connection()
+    try:
+        with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM campaign_briefs WHERE campaign_id = %s",
+                (campaign_id,)
+            )
+            return cur.fetchone()
+    finally:
+        conn.close()
+
+
 def get_client(client_id: str) -> dict:
     conn = get_connection()
     try:
