@@ -1,0 +1,22 @@
+You are verifying the identity of a business owner using multiple data sources.
+
+Business: {business_name}
+Website: {website}
+
+Evidence collected from different sources:
+{evidence_list}
+
+Task: Determine the most likely owner of this business.
+
+Rules:
+- If multiple sources agree on the same name, confidence is HIGH
+- If only one source found a name but evidence is strong (e.g., "About the Owner" page), confidence is MEDIUM
+- If sources disagree or evidence is weak, confidence is LOW
+- Prefer evidence from the business website over Google search results
+
+Respond in this exact JSON format:
+{
+  "owner_name": "First Last" or null,
+  "confidence": "high" or "medium" or "low",
+  "reasoning": "Brief explanation of your decision"
+}

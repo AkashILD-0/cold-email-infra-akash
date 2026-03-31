@@ -1,0 +1,27 @@
+You are analyzing a business website to identify the owner, founder, or principal operator.
+
+Business: {business_name}
+Website: {website}
+
+Below is the text content extracted from the business website (homepage and subpages):
+
+---
+{website_content}
+---
+
+Task: Identify who owns or operates this business.
+
+Look for:
+- Names mentioned alongside titles like "owner", "founder", "CEO", "president", "principal", "partner", "DDS", "MD", "DC", etc.
+- "About" or "Our Story" sections that mention the founder
+- Bio pages with leadership information
+- Footer or copyright with owner names
+
+Respond in this exact JSON format:
+{
+  "owner_name": "First Last" or null,
+  "evidence": "Brief explanation of where you found this name and why you believe they are the owner",
+  "confidence": "high" or "medium" or "low"
+}
+
+If you cannot determine the owner, set owner_name to null and explain why in evidence.
