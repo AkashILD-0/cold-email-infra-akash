@@ -32,9 +32,14 @@ def ingest_youtube_channel(channel_url: str, channel_handle: str = "",
 
     logger.info(f"Ingesting channel: {channel_handle} ({channel_url}), max={max_videos}")
 
+    from datetime import datetime, timedelta
+    start_date = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+
     items = run_actor(TRANSCRIPT_ACTOR, {
-        "channelUrl": channel_url,
-        "maxVideos": max_videos,
+        "channel_url": channel_url,
+        "max_videos": max_videos,
+        "start_date": start_date,
+        "include_transcript_text": True,
     }, timeout=600)
 
     logger.info(f"Apify returned {len(items)} items for {channel_handle}")
@@ -43,9 +48,11 @@ def ingest_youtube_channel(channel_url: str, channel_handle: str = "",
     try:
         with conn.cursor() as cur:
             for item in items:
-                source_url = item.get("url", "")
-                title = item.get("title", "")
-                transcript = item.get("transcript", "")
+                source_url = item.get("url", "") or item.get("video_url", "")
+                title = item.get("title", "") or item.get("video_title", "")
+                transcript = (item.get("transcript_text", "")
+                              or item.get("transcript", "")
+                              or item.get("text", ""))
 
                 if not transcript or len(transcript) < 100:
                     stats["errors"] += 1
