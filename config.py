@@ -52,13 +52,13 @@ PROCESS_BATCH_SIZE = 500          # Leads per enrichment batch
 # --- Owner Discovery ---
 WEBSITE_SCRAPE_MAX_SUBPAGES = 20
 WEBSITE_SCRAPE_TIMEOUT = 10       # seconds per page
-OWNER_DISCOVERY_WORKERS = 4       # concurrent workers
+OWNER_DISCOVERY_WORKERS = 8       # concurrent workers per column batch
 
 # --- Email Waterfall ---
-EMAIL_WATERFALL_WORKERS = 6
+EMAIL_WATERFALL_WORKERS = 8
 
 # --- Validation ---
-VALIDATION_WORKERS = 6
+VALIDATION_WORKERS = 8
 MILLION_VERIFIER_DELAY = 0.2      # seconds between MV calls
 
 # --- Campaign Thresholds ---
