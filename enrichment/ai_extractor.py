@@ -20,6 +20,19 @@ OWNER_DISCOVERY_PROMPT = _load_prompt("owner_discovery.txt")
 OWNER_VERIFICATION_PROMPT = _load_prompt("owner_verification.txt")
 
 
+def _parse_json_response(text: str) -> dict:
+    """Parse JSON from Claude response, stripping markdown code fences if present."""
+    text = text.strip()
+    if text.startswith("```"):
+        # Remove opening fence (```json or ```)
+        first_newline = text.index("\n")
+        text = text[first_newline + 1:]
+        # Remove closing fence
+        if text.endswith("```"):
+            text = text[:-3].strip()
+    return json.loads(text)
+
+
 def extract_owner_from_website(business_name: str, website: str,
                                 website_content: str,
                                 campaign_id: str = None,
@@ -38,7 +51,7 @@ def extract_owner_from_website(business_name: str, website: str,
             messages=[{"role": "user", "content": prompt}]
         )
         text = response.content[0].text
-        result = json.loads(text)
+        result = _parse_json_response(text)
         track_cost(campaign_id, lead_id, "claude_haiku", "owner_discovery")
         return result
     except Exception as e:
@@ -64,7 +77,7 @@ def extract_owner_from_search(business_name: str, website: str,
             messages=[{"role": "user", "content": prompt}]
         )
         text = response.content[0].text
-        result = json.loads(text)
+        result = _parse_json_response(text)
         track_cost(campaign_id, lead_id, "claude_haiku", "owner_discovery",
                    cost_usd=0.005)
         return result
@@ -97,7 +110,7 @@ def verify_owner(business_name: str, website: str,
             messages=[{"role": "user", "content": prompt}]
         )
         text = response.content[0].text
-        result = json.loads(text)
+        result = _parse_json_response(text)
         track_cost(campaign_id, lead_id, "claude_haiku", "owner_verification",
                    cost_usd=0.002)
         return result

@@ -22,7 +22,17 @@ class InstantlyClient:
             resp = requests.post(
                 f"{self.BASE_URL}/campaigns",
                 headers=self._headers(),
-                json={"name": name},
+                json={
+                    "name": name,
+                    "campaign_schedule": {
+                        "schedules": [{
+                            "name": "Default",
+                            "timing": {"from": "09:00", "to": "17:00"},
+                            "days": {"1": True, "2": True, "3": True, "4": True, "5": True},
+                            "timezone": "America/Detroit",
+                        }]
+                    },
+                },
                 timeout=30
             )
             resp.raise_for_status()
@@ -32,22 +42,34 @@ class InstantlyClient:
             return {}
 
     def add_leads_to_campaign(self, campaign_id: str, leads: list) -> dict:
-        """Add leads to an Instantly campaign. leads = [{email, first_name, last_name, ...}]"""
-        try:
-            resp = requests.post(
-                f"{self.BASE_URL}/leads",
-                headers=self._headers(),
-                json={
-                    "campaign_id": campaign_id,
-                    "leads": leads,
-                },
-                timeout=60
-            )
-            resp.raise_for_status()
-            return resp.json()
-        except Exception as e:
-            logger.error(f"Instantly add leads error: {e}")
-            return {}
+        """Add leads to an Instantly campaign one at a time (v2 API).
+        leads = [{email, first_name, last_name, company_name, custom_variables}]
+        Returns {added: int, errors: int}."""
+        result = {"added": 0, "errors": 0}
+        for lead in leads:
+            try:
+                payload = {
+                    "email": lead["email"],
+                    "first_name": lead.get("first_name", ""),
+                    "last_name": lead.get("last_name", ""),
+                    "company_name": lead.get("company_name", ""),
+                    "campaign": campaign_id,
+                }
+                # Add custom variables if present
+                for key, value in lead.get("custom_variables", {}).items():
+                    payload[key] = value
+                resp = requests.post(
+                    f"{self.BASE_URL}/leads",
+                    headers=self._headers(),
+                    json=payload,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                result["added"] += 1
+            except Exception as e:
+                logger.error(f"Instantly add lead error ({lead.get('email')}): {e}")
+                result["errors"] += 1
+        return result
 
     def set_campaign_schedule(self, campaign_id: str, schedule: dict) -> dict:
         """Set sending schedule for a campaign."""

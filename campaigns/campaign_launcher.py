@@ -96,14 +96,10 @@ def launch_campaign(campaign_id: str) -> dict:
     # Sync to Instantly
     stats = {"synced": 0, "errors": 0}
 
-    # Add leads in batches of 100
-    for i in range(0, len(instantly_leads), 100):
-        batch = instantly_leads[i:i+100]
-        result = instantly.add_leads_to_campaign(instantly_campaign_id, batch)
-        if result:
-            stats["synced"] += len(batch)
-        else:
-            stats["errors"] += len(batch)
+    # Add leads (v2 API adds one at a time)
+    result = instantly.add_leads_to_campaign(instantly_campaign_id, instantly_leads)
+    stats["synced"] = result.get("added", 0)
+    stats["errors"] = result.get("errors", 0)
 
     # Mark sequences as synced
     if stats["synced"] > 0:
@@ -113,7 +109,7 @@ def launch_campaign(campaign_id: str) -> dict:
                 lead_ids = [str(l["lead_id"]) for l in leads[:stats["synced"]]]
                 cur.execute("""
                     UPDATE email_sequences SET status = 'synced'
-                    WHERE lead_id = ANY(%s)
+                    WHERE lead_id = ANY(%s::uuid[])
                 """, (lead_ids,))
                 conn.commit()
         finally:

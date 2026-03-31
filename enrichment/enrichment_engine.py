@@ -32,6 +32,8 @@ def process_batch(campaign_id: str, batch_size: int = None) -> dict:
                 owner_result = discover_owner(lead, campaign_id)
                 if owner_result.get("owner_name"):
                     stats["owners_found"] += 1
+                    lead["owner_name"] = owner_result["owner_name"]
+                lead["owner_status"] = owner_result.get("owner_status", "not_found")
                 # Carry website_data forward to avoid re-scraping
                 website_data = owner_result.get("_website_data")
 
@@ -48,8 +50,9 @@ def process_batch(campaign_id: str, batch_size: int = None) -> dict:
                 val_result = validate_lead_email(lead, campaign_id)
                 if val_result.get("email_verdict"):
                     stats["validated"] += 1
+                    lead["email_verdict"] = val_result["email_verdict"]
 
-            # Update enrichment status
+            # Update enrichment status — re-read lead to get current state
             new_status = _determine_status(lead)
             update_lead_fields(lead_id, {"enrichment_status": new_status})
 

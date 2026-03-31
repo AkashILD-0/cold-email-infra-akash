@@ -14,7 +14,7 @@ MILLION_VERIFIER_BASE_URL = "https://api.millionverifier.com/api/v3/"
 # --- Anthropic ---
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
-SONNET_MODEL = "claude-sonnet-4-6-20250326"
+SONNET_MODEL = "claude-sonnet-4-20250514"
 
 # --- Apollo.io ---
 APOLLO_API_KEY = os.environ.get("APOLLO_API_KEY", "")

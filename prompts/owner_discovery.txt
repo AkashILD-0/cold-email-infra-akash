@@ -18,10 +18,10 @@ Look for:
 - Footer or copyright with owner names
 
 Respond in this exact JSON format:
-{
+{{
   "owner_name": "First Last" or null,
   "evidence": "Brief explanation of where you found this name and why you believe they are the owner",
   "confidence": "high" or "medium" or "low"
-}
+}}
 
 If you cannot determine the owner, set owner_name to null and explain why in evidence.

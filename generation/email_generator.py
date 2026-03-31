@@ -83,7 +83,13 @@ Respond in this exact JSON format:
             system=system,
             messages=[{"role": "user", "content": prompt}]
         )
-        text = response.content[0].text
+        text = response.content[0].text.strip()
+        # Strip markdown code fences if present
+        if text.startswith("```"):
+            first_newline = text.index("\n")
+            text = text[first_newline + 1:]
+            if text.endswith("```"):
+                text = text[:-3].strip()
         sequences = json.loads(text)
 
         track_cost(campaign_id, str(lead.get("lead_id")),

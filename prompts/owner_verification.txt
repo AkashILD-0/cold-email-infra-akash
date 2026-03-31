@@ -15,8 +15,8 @@ Rules:
 - Prefer evidence from the business website over Google search results
 
 Respond in this exact JSON format:
-{
+{{
   "owner_name": "First Last" or null,
   "confidence": "high" or "medium" or "low",
   "reasoning": "Brief explanation of your decision"
-}
+}}
