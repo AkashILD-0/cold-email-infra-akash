@@ -181,7 +181,7 @@ Set needs_revision=true only if any score is below 6."""
     try:
         response = client.messages.create(
             model=HAIKU_MODEL,
-            max_tokens=400,
+            max_tokens=800,
             system=EMAIL_REVIEWER_PROMPT or "You are a cold email quality reviewer.",
             messages=[{"role": "user", "content": review_prompt}]
         )

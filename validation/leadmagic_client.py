@@ -41,7 +41,7 @@ def validate_email(email: str,
             f"{LEADMAGIC_BASE_URL}/email-validate",
             headers=_headers(),
             json={"email": email},
-            timeout=15
+            timeout=8
         )
         resp.raise_for_status()
         data = resp.json()

@@ -49,6 +49,9 @@ def validate_lead_email(lead: dict, campaign_id: str) -> dict:
         else:
             result["email_verdict"] = "UNVERIFIED"
 
+    # Mark as validated so campaign launcher can pick it up
+    result["enrichment_status"] = "validated"
+
     # Update lead in DB
     update_lead_fields(lead_id, result)
 
