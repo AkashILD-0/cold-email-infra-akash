@@ -304,6 +304,216 @@ def _build_brief_context(brief: dict) -> str:
     return "\n".join(parts)
 
 
+def _resolve_greeting(lead: dict) -> str:
+    """Determine the best greeting name using SOP fallback chain:
+    1. owner_name first name
+    2. Email local part (skip generics)
+    3. Extract name from business_name (Dr. X → X)
+    4. Practice name fallback
+    """
+    GENERIC_PREFIXES = {"info", "contact", "admin", "office", "team", "hello",
+                        "support", "noreply", "no-reply", "reception", "booking",
+                        "appointments", "mail", "help", "care", "inquiries"}
+
+    # 1. Owner name
+    owner = lead.get("owner_name", "")
+    if owner:
+        first = owner.strip().split()[0]
+        if first.lower() not in GENERIC_PREFIXES:
+            return first
+
+    # 2. Email local part
+    email = lead.get("email", "")
+    if email and "@" in email:
+        local = email.split("@")[0].lower()
+        # Skip generic inboxes
+        if local not in GENERIC_PREFIXES and not any(g in local for g in GENERIC_PREFIXES):
+            # Try to extract a name: john.smith → John
+            parts = local.replace(".", " ").replace("_", " ").replace("-", " ").split()
+            candidate = parts[0].capitalize()
+            if len(candidate) >= 2 and candidate.isalpha():
+                return candidate
+
+    # 3. Parse "Dr. First Last, Title" from business name
+    import re
+    biz = lead.get("business_name", "")
+    dr_match = re.search(r"\bDr\.?\s+([A-Z][a-z]+)", biz)
+    if dr_match:
+        return dr_match.group(1)
+
+    # 4. Practice name fallback
+    return biz or "there"
+
+
+def _scrape_website_insights(website: str) -> str:
+    """Scrape a practice website and return a brief insights summary (for email personalization).
+    Returns a short string with 3-5 key observations, or empty string if scraping fails."""
+    if not website:
+        return ""
+
+    try:
+        from enrichment.website_scraper import scrape_website
+        data = scrape_website(website)
+        if not data or not data.get("pages"):
+            return ""
+
+        # Combine homepage + about/team pages (max 8000 chars to keep tokens low)
+        priority_pages = []
+        other_pages = []
+        for page in data["pages"]:
+            url = page.get("url", "").lower()
+            text = page.get("text", "")
+            if not text:
+                continue
+            if any(p in url for p in ["/about", "/team", "/doctor", "/provider",
+                                       "/staff", "/meet", "/welcome", "/our"]):
+                priority_pages.append(text)
+            else:
+                other_pages.append(text)
+
+        combined = "\n\n".join(priority_pages + other_pages)
+        return combined[:8000]
+    except Exception as e:
+        logger.debug(f"Website scrape failed for {website}: {e}")
+        return ""
+
+
+def generate_personalized_sequence(lead: dict, brief: dict,
+                                    campaign_id: str = None) -> tuple:
+    """Generate a website-personalized 3-email sequence for a single lead.
+    Scrapes the practice website, extracts insights, personalizes the email.
+    Returns (sequences_dict, website_insights_str, was_revised)."""
+
+    # Determine website URL
+    website = lead.get("website", "")
+    if not website and lead.get("business_domain"):
+        website = f"https://{lead['business_domain']}"
+    elif not website and lead.get("email") and "@" in lead["email"]:
+        domain = lead["email"].split("@")[1]
+        website = f"https://{domain}"
+
+    # Scrape website for context
+    website_raw = _scrape_website_insights(website) if website else ""
+
+    # Use Claude Haiku to summarize website into 3-5 key insights
+    website_insights = ""
+    if website_raw:
+        try:
+            insight_prompt = f"""You are reviewing a medical practice website to find 3-5 specific, useful details that could personalize a cold email.
+
+Practice: {lead.get('business_name', '')}
+Website content (excerpt):
+{website_raw[:6000]}
+
+Extract 3-5 specific, concrete observations about this practice that make it unique. Focus on:
+- Doctor names, credentials, years of experience
+- Specific services or specialties they emphasize
+- Technology or equipment mentioned
+- Patient philosophy or unique approach
+- Any awards, recognition, or notable features
+
+Write as a brief bullet list. Be specific — avoid generic observations like "they offer OB/GYN services."
+If the website has no useful unique content, write "No distinctive details found."
+
+Respond with ONLY the bullet list, nothing else."""
+
+            ins_response = client.messages.create(
+                model=HAIKU_MODEL,
+                max_tokens=300,
+                messages=[{"role": "user", "content": insight_prompt}]
+            )
+            website_insights = ins_response.content[0].text.strip()
+        except Exception as e:
+            logger.debug(f"Insight extraction failed: {e}")
+            website_insights = ""
+
+    # Build greeting
+    greeting_name = _resolve_greeting(lead)
+
+    # Build brief context
+    brief_context = _build_brief_context(brief) if brief else ""
+
+    # Build personalization block
+    personalization_block = ""
+    if website_insights and "No distinctive details" not in website_insights:
+        personalization_block = f"""
+## Practice-Specific Research
+Website: {website}
+Key insights:
+{website_insights}
+
+Use 1-2 of these details to make the first email feel like you've actually looked at their practice.
+"""
+
+    lead_context = _build_lead_context(lead)
+
+    prompt = f"""Generate a 3-email cold outreach sequence for this OBGYN physician practice.
+
+## What You Are Selling
+{brief_context}
+
+## Lead Details
+{lead_context}
+Greeting name: {greeting_name}
+{personalization_block}
+Rules:
+- Email 1: Initial outreach — open with a practice-specific observation (if available), then value-first pitch. Under 120 words.
+- Email 2: Follow-up (3-5 days later) — lead with the Allegiance case study numbers ($373K, 1,768 visits in 6 weeks). Under 100 words.
+- Email 3: Break-up (7-10 days later) — short permission close, create urgency. Under 80 words.
+- Start every email with "Hi {greeting_name}," (use the provided greeting name)
+- Never use generic openers like "I hope this email finds you well"
+- Subject lines: 3-7 words, lowercase, curiosity or benefit-driven
+- Do NOT start any email body with "I" — lead with them or with an observation
+
+Respond in this exact JSON format:
+{{
+    "email_1_subject": "...",
+    "email_1_body": "...",
+    "email_2_subject": "...",
+    "email_2_body": "...",
+    "email_3_subject": "...",
+    "email_3_body": "..."
+}}"""
+
+    research_context = _get_smart_research_context()
+    system = EMAIL_SYSTEM_PROMPT
+    if research_context:
+        system += f"\n\n## Cold Email Research & Frameworks\n{research_context[:12000]}"
+
+    try:
+        response = client.messages.create(
+            model=SONNET_MODEL,
+            max_tokens=2000,
+            system=system,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        sequences = _parse_json_response(response.content[0].text)
+        track_cost(campaign_id, str(lead.get("lead_id")),
+                   "claude_sonnet", "email_generation")
+
+        # Haiku review pass
+        was_revised = False
+        if EMAIL_REVIEWER_PROMPT:
+            lead_ctx_for_review = lead_context
+            if personalization_block:
+                lead_ctx_for_review += "\n" + personalization_block
+            review = _review_sequence(sequences, lead_ctx_for_review,
+                                      campaign_id, str(lead.get("lead_id")))
+            if review and review.get("needs_revision"):
+                revised = _revise_sequence(sequences, review["feedback"],
+                                           lead_ctx_for_review, system,
+                                           campaign_id, str(lead.get("lead_id")))
+                if revised:
+                    sequences = revised
+                    was_revised = True
+
+        return sequences, website_insights, was_revised
+
+    except Exception as e:
+        logger.error(f"Personalized email generation error: {e}")
+        return None, website_insights, False
+
+
 def _parse_json_response(text: str) -> dict:
     """Parse JSON from Claude response, stripping markdown fences."""
     text = text.strip()
