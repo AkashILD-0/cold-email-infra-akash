@@ -1,17 +1,21 @@
 """
 Cold email sequence generator with topic-aware knowledge injection
-and Haiku self-review for quality assurance.
+and self-review for quality assurance.
 
 Two-pass generation:
-  Pass 1: Sonnet generates 3-email sequence with topic-specific research context
-  Pass 2: Haiku reviews for quality, triggers revision if needed
+  Pass 1: Gemini Flash (default) or Sonnet generates 3-email sequence
+  Pass 2: Gemini Flash Lite or Haiku reviews for quality, triggers revision if needed
+
+Set GEMINI_EMAIL_GENERATION=true in .env to use Gemini Flash (~10x cheaper than Sonnet).
 """
 
 import json
 import logging
 import os
 from anthropic import Anthropic
-from config import ANTHROPIC_API_KEY, SONNET_MODEL, HAIKU_MODEL
+from config import (ANTHROPIC_API_KEY, SONNET_MODEL, HAIKU_MODEL,
+                    GEMINI_API_KEY, GEMINI_FLASH_MODEL, GEMINI_FLASH_LITE_MODEL,
+                    GEMINI_EMAIL_GENERATION, GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT)
 from generation.knowledge_base import get_topic_documents, get_research_document
 from db import save_email_sequence, get_leads_for_email_gen, get_campaign_brief
 from tracking.cost_tracker import track_cost
@@ -19,6 +23,41 @@ from tracking.cost_tracker import track_cost
 logger = logging.getLogger(__name__)
 
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+
+def _gemini_json_call(prompt: str, system: str, operation: str,
+                      campaign_id: str, lead_id: str,
+                      temperature: float = 0.4,
+                      max_output_tokens: int = 4096,
+                      model: str = None) -> dict:
+    """Call Gemini Flash and return parsed JSON. Mirrors Arjun's implementation.
+    Uses Vertex AI when GOOGLE_GENAI_USE_VERTEXAI=true, otherwise direct API key."""
+    from google import genai as _genai
+    from google.genai import types as _genai_types
+
+    if GOOGLE_GENAI_USE_VERTEXAI and GOOGLE_CLOUD_PROJECT:
+        gemini_client = _genai.Client(vertexai=True, project=GOOGLE_CLOUD_PROJECT,
+                                      location="us-central1")
+    else:
+        gemini_client = _genai.Client(api_key=GEMINI_API_KEY)
+    used_model = model or GEMINI_FLASH_MODEL
+
+    # Gemini 2.5 thinking mode eats output tokens — pin a small budget
+    response = gemini_client.models.generate_content(
+        model=used_model,
+        contents=prompt,
+        config=_genai_types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            max_output_tokens=max_output_tokens,
+            temperature=temperature,
+            thinking_config=_genai_types.ThinkingConfig(thinking_budget=512),
+        ),
+    )
+    provider = "gemini_flash_lite" if used_model == GEMINI_FLASH_LITE_MODEL else "gemini_flash"
+    cost = 0.00005 if used_model == GEMINI_FLASH_LITE_MODEL else 0.0005
+    track_cost(campaign_id, lead_id, provider, operation, cost_usd=cost)
+    return _parse_json_response(response.text)
 
 # Load prompts
 _prompt_dir = os.path.join(os.path.dirname(__file__), "..", "prompts")
@@ -114,16 +153,19 @@ Respond in this exact JSON format:
         system += f"\n\n## Cold Email Research & Frameworks\n{research_context[:15000]}"
 
     try:
-        # Pass 1: Generate with Sonnet
-        response = client.messages.create(
-            model=SONNET_MODEL,
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        sequences = _parse_json_response(response.content[0].text)
-        track_cost(campaign_id, str(lead.get("lead_id")),
-                   "claude_sonnet", "email_generation")
+        # Pass 1: Generate
+        if GEMINI_EMAIL_GENERATION:
+            sequences = _gemini_json_call(prompt, system, "email_generation",
+                                          campaign_id, str(lead.get("lead_id")),
+                                          max_output_tokens=2000)
+        else:
+            response = client.messages.create(
+                model=SONNET_MODEL, max_tokens=2000, system=system,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            sequences = _parse_json_response(response.content[0].text)
+            track_cost(campaign_id, str(lead.get("lead_id")),
+                       "claude_sonnet", "email_generation")
 
         # Pass 2: Self-review with Haiku
         if EMAIL_REVIEWER_PROMPT:
@@ -179,15 +221,21 @@ Respond in JSON:
 Set needs_revision=true only if any score is below 6."""
 
     try:
-        response = client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=800,
-            system=EMAIL_REVIEWER_PROMPT or "You are a cold email quality reviewer.",
-            messages=[{"role": "user", "content": review_prompt}]
-        )
-        result = _parse_json_response(response.content[0].text)
-        track_cost(campaign_id, lead_id, "claude_haiku", "email_review",
-                   cost_usd=0.003)
+        if GEMINI_EMAIL_GENERATION:
+            result = _gemini_json_call(
+                review_prompt,
+                EMAIL_REVIEWER_PROMPT or "You are a cold email quality reviewer.",
+                "email_review", campaign_id, lead_id,
+                max_output_tokens=800, model=GEMINI_FLASH_LITE_MODEL,
+            )
+        else:
+            response = client.messages.create(
+                model=HAIKU_MODEL, max_tokens=800,
+                system=EMAIL_REVIEWER_PROMPT or "You are a cold email quality reviewer.",
+                messages=[{"role": "user", "content": review_prompt}]
+            )
+            result = _parse_json_response(response.content[0].text)
+            track_cost(campaign_id, lead_id, "claude_haiku", "email_review", cost_usd=0.003)
 
         if result.get("needs_revision"):
             logger.info(f"Review flagged for revision: {result.get('feedback', '')[:100]}")
@@ -216,14 +264,16 @@ Revise the sequence to address the feedback. Keep the same JSON format.
 Respond with ONLY the revised JSON — no explanation."""
 
     try:
-        response = client.messages.create(
-            model=SONNET_MODEL,
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        revised = _parse_json_response(response.content[0].text)
-        track_cost(campaign_id, lead_id, "claude_sonnet", "email_revision")
+        if GEMINI_EMAIL_GENERATION:
+            revised = _gemini_json_call(prompt, system, "email_revision",
+                                        campaign_id, lead_id, max_output_tokens=2000)
+        else:
+            response = client.messages.create(
+                model=SONNET_MODEL, max_tokens=2000, system=system,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            revised = _parse_json_response(response.content[0].text)
+            track_cost(campaign_id, lead_id, "claude_sonnet", "email_revision")
         return revised
     except Exception as e:
         logger.error(f"Revision error: {e}")
@@ -417,12 +467,19 @@ If the website has no useful unique content, write "No distinctive details found
 
 Respond with ONLY the bullet list, nothing else."""
 
-            ins_response = client.messages.create(
-                model=HAIKU_MODEL,
-                max_tokens=300,
-                messages=[{"role": "user", "content": insight_prompt}]
-            )
-            website_insights = ins_response.content[0].text.strip()
+            if GEMINI_EMAIL_GENERATION:
+                result = _gemini_json_call(
+                    insight_prompt, "", "email_generation",
+                    campaign_id or "", str(lead.get("lead_id", "")),
+                    max_output_tokens=300, model=GEMINI_FLASH_LITE_MODEL,
+                )
+                website_insights = result if isinstance(result, str) else json.dumps(result)
+            else:
+                ins_response = client.messages.create(
+                    model=HAIKU_MODEL, max_tokens=300,
+                    messages=[{"role": "user", "content": insight_prompt}]
+                )
+                website_insights = ins_response.content[0].text.strip()
         except Exception as e:
             logger.debug(f"Insight extraction failed: {e}")
             website_insights = ""
@@ -481,17 +538,20 @@ Respond in this exact JSON format:
         system += f"\n\n## Cold Email Research & Frameworks\n{research_context[:12000]}"
 
     try:
-        response = client.messages.create(
-            model=SONNET_MODEL,
-            max_tokens=2000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        sequences = _parse_json_response(response.content[0].text)
-        track_cost(campaign_id, str(lead.get("lead_id")),
-                   "claude_sonnet", "email_generation")
+        if GEMINI_EMAIL_GENERATION:
+            sequences = _gemini_json_call(prompt, system, "email_generation",
+                                          campaign_id, str(lead.get("lead_id")),
+                                          max_output_tokens=2000)
+        else:
+            response = client.messages.create(
+                model=SONNET_MODEL, max_tokens=2000, system=system,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            sequences = _parse_json_response(response.content[0].text)
+            track_cost(campaign_id, str(lead.get("lead_id")),
+                       "claude_sonnet", "email_generation")
 
-        # Haiku review pass
+        # Review pass
         was_revised = False
         if EMAIL_REVIEWER_PROMPT:
             lead_ctx_for_review = lead_context

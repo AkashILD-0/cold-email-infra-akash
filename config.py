@@ -16,6 +16,16 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 HAIKU_MODEL = "claude-haiku-4-5-20251001"
 SONNET_MODEL = "claude-sonnet-4-20250514"
 
+# --- Gemini ---
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_FLASH_MODEL = "gemini-2.5-flash"
+GEMINI_FLASH_LITE_MODEL = "gemini-2.5-flash-8b"
+# Set GEMINI_EMAIL_GENERATION=true in .env to use Gemini Flash instead of Sonnet (~10x cheaper)
+GEMINI_EMAIL_GENERATION = os.environ.get("GEMINI_EMAIL_GENERATION", "false").lower() in ("true", "1", "yes")
+# Vertex AI (preferred — uses GCP service account, no API key needed)
+GOOGLE_GENAI_USE_VERTEXAI = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "false").lower() in ("true", "1", "yes")
+GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT", "")
+
 # --- Apollo.io ---
 APOLLO_API_KEY = os.environ.get("APOLLO_API_KEY", "")
 APOLLO_BASE_URL = "https://api.apollo.io/v1"
