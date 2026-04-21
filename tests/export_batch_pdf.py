@@ -14,9 +14,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fpdf import FPDF
 from fpdf.enums import XPos, YPos
-from db import get_connection, get_campaign_brief
+from db import get_connection
 from psycopg2.extras import RealDictCursor
-from generation.email_generator import generate_personalized_sequence
 
 OBGYN_CAMPAIGN_ID = "b3fafa6f-623d-4c55-a475-0dc6ddfc5e6e"
 FONT_PATH = r"C:\Windows\Fonts\calibri.ttf"
@@ -32,7 +31,11 @@ def fetch_batch(campaign_id, offset, limit):
             cur.execute("""
                 SELECT l.lead_id, l.owner_name, l.business_name, l.email,
                        l.website, l.business_domain, l.city, l.state,
-                       l.email_verdict, es.sequence_id
+                       l.email_verdict,
+                       es.sequence_id,
+                       es.email_1_subject, es.email_1_body,
+                       es.email_2_subject, es.email_2_body,
+                       es.email_3_subject, es.email_3_body
                 FROM leads l
                 LEFT JOIN email_sequences es ON l.lead_id = es.lead_id
                 WHERE l.campaign_id = %s
@@ -118,8 +121,8 @@ def add_lead_section(pdf, index, lead, sequences, website_insights):
     email_colors = {1: (20, 120, 60), 2: (120, 60, 20), 3: (100, 20, 80)}
 
     for i in range(1, 4):
-        subject = sequences.get(f"email_{i}_subject", "") if sequences else ""
-        body = sequences.get(f"email_{i}_body", "[Generation failed]") if sequences else "[Generation failed]"
+        subject = sequences.get(f"email_{i}_subject") or "" if sequences else ""
+        body = sequences.get(f"email_{i}_body") or "[No content]" if sequences else "[No content]"
 
         r, g, b = email_colors[i]
         pdf.set_font("Calibri", "B", 10)
@@ -154,19 +157,19 @@ def main():
         print("No leads found.")
         return
 
-    brief = get_campaign_brief(args.campaign)
-    if not brief:
-        print("No campaign brief found.")
-        sys.exit(1)
-
     results = []
     for i, lead in enumerate(leads, 1):
         name = lead.get("owner_name") or lead.get("business_name") or lead.get("email")
         print(f"[{i}/{len(leads)}] {name}...")
-        seqs, insights, _ = generate_personalized_sequence(
-            lead=dict(lead), brief=dict(brief), campaign_id=args.campaign
-        )
-        results.append((lead, seqs, insights))
+        seqs = {
+            "email_1_subject": lead.get("email_1_subject", ""),
+            "email_1_body": lead.get("email_1_body", ""),
+            "email_2_subject": lead.get("email_2_subject", ""),
+            "email_2_body": lead.get("email_2_body", ""),
+            "email_3_subject": lead.get("email_3_subject", ""),
+            "email_3_body": lead.get("email_3_body", ""),
+        }
+        results.append((lead, seqs, None))
 
     pdf = BatchPDF(orientation="P", unit="mm", format="A4")
     pdf.add_font("Calibri", "", FONT_PATH)
