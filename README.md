@@ -50,8 +50,8 @@ Client Excel/CSV
 | Layer | Tool |
 |---|---|
 | Language | Python 3.11 |
-| Database | PostgreSQL — Cloud SQL @ `34.46.61.90` (`leadgen_db`) |
-| AI — Email Generation | Gemini 2.5 Flash via Vertex AI (`autotrader-ild` project) |
+| Database | PostgreSQL — Google Cloud SQL |
+| AI — Email Generation | Gemini 2.5 Flash via Vertex AI |
 | AI — Insight Extraction / Review | Claude Haiku 4.5 |
 | Email Validation | LeadMagic → Million Verifier cascade |
 | Cold Email Platform | Instantly.ai v2 API |
@@ -124,23 +124,23 @@ Copy `.env.example` to `.env`:
 
 ```env
 # Database
-DB_HOST=34.46.61.90
-DB_NAME=leadgen_db
-DB_USER=...
-DB_PASSWORD=...
+DB_HOST=your-cloud-sql-ip
+DB_NAME=your-db-name
+DB_USER=your-db-user
+DB_PASSWORD=your-db-password
 
-# AI
-ANTHROPIC_API_KEY=...          # Haiku (insight extraction + review)
+# AI — Haiku (insight extraction + review)
+ANTHROPIC_API_KEY=your-anthropic-key
 
 # Gemini Flash — email generation (~80x cheaper than Sonnet)
 GEMINI_EMAIL_GENERATION=true
 GOOGLE_GENAI_USE_VERTEXAI=True
-GOOGLE_CLOUD_PROJECT=autotrader-ild
+GOOGLE_CLOUD_PROJECT=your-gcp-project
 GOOGLE_CLOUD_LOCATION=global
 
 # Email validation
-LEADMAGIC_API_KEY=...
-MILLION_VERIFIER_API_KEY=...
+LEADMAGIC_API_KEY=your-leadmagic-key
+MILLION_VERIFIER_API_KEY=your-mv-key
 ```
 
 > **Note:** The Instantly API key is stored **per-client in the DB** (`clients.instantly_api_key`), not in `.env`. This keeps HTAI and ILD accounts cleanly separated.
@@ -255,11 +255,13 @@ Set once per campaign via `PATCH /api/v2/campaigns/{id}`:
 
 ## Active Campaigns
 
-| Specialty | Client | DB Campaign ID | Instantly Campaign ID | Leads Synced |
-|-----------|--------|---------------|----------------------|-------------|
-| Dentist Outreach | ILD | `929bebd1-c12d-4417-a17e-3b8ace142b3c` | `177d22e9-7e96-4287-835b-ab1d22d2d7bb` | 3,440 ✅ |
-| OBGYN | HTAI | `b3fafa6f-623d-4c55-a475-0dc6ddfc5e6e` | `735ef703-d8ea-44d1-aa0a-d9356ebfd8eb` | 592 ✅ |
-| Orthopedics | HTAI | `831c7077-b3a6-42d4-9262-f70aa9ecd194` | `6c3db052-4e7a-49e1-8139-c218b44c88b3` | 4 (in progress) |
+| Specialty | Client | Leads Synced |
+|-----------|--------|-------------|
+| Dentist Outreach | ILD | 3,440 ✅ |
+| OBGYN | HTAI | 592 ✅ |
+| Orthopedics | HTAI | 4 (in progress) |
+
+> Campaign IDs are stored in the DB and `.env` — not committed to the repo.
 
 ---
 
