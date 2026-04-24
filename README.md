@@ -1,60 +1,62 @@
 # Akash Cold Email Infra
 
-A Python-based cold email automation pipeline for **client-CSV-based outreach campaigns** — built for HealthTalk AI and similar clients where leads are provided pre-qualified in Excel/CSV files.
+> **Client-CSV-based cold email pipeline** for HealthTalk AI and similar clients where leads arrive pre-qualified in Excel/CSV files — no scraping, no owner discovery, straight to validated emails and AI-generated sequences.
 
-> **Maintained by:** Akash (Infinite Labs Digital)
-> **Repo:** `Infinite-Labs-Digital/akash-cold-email-infra`
-> **Separate from:** Arjun's scraping-based LeadForge (`infra-cold-email`) — this pipeline skips Apollo/GMaps scraping and owner discovery entirely.
+**Maintained by:** Akash @ Infinite Labs Digital  
+**Repos:** [`AkashILD-0/cold-email-infra-akash`](https://github.com/AkashILD-0/cold-email-infra-akash) · [`Infinite-Labs-Digital/akash-cold-email-infra`](https://github.com/Infinite-Labs-Digital/akash-cold-email-infra)  
+**Separate from:** Arjun's scraping-based LeadForge (`infra-cold-email`)
 
 ---
 
-## What It Does
+## Pipeline Overview
 
 ```
 Client Excel/CSV
       │
       ▼
- Import Leads  ──────────────────────────────► PostgreSQL (Cloud SQL)
+  Import Leads ──────────────────────────► PostgreSQL (Cloud SQL)
       │
       ▼
- Email Validation  (LeadMagic + Million Verifier cascade)
+  Email Validation  (LeadMagic + Million Verifier cascade)
       │
       ▼
- Website Scraping  (per-lead practice website → key insights)
+  Website Scraping  (practice website → key insights)
       │
       ▼
- AI Email Generation  (Claude Sonnet 3-email sequence, Haiku review)
+  AI Email Generation  (Gemini 2.5 Flash — 3-email sequence)
       │
       ▼
- Push to Instantly  (per-lead custom variables via PATCH API)
+  Push to Instantly  (per-lead custom variables via PATCH/POST API)
       │
       ▼
- Campaign Live in Instantly  ──► Replies flow into GoHighLevel
+  Campaign Live ──────────────────────────► Replies flow into GoHighLevel
 ```
 
 ---
 
-## Key Difference from LeadForge
+## vs. LeadForge (Arjun's pipeline)
 
-| | This repo (Akash) | LeadForge (Arjun) |
+| | **This repo** | **LeadForge** |
 |---|---|---|
 | Lead source | Client-provided Excel/CSV | GMaps / Apollo / Directory scraping |
-| Owner discovery | Skipped (client provides) | Automated via Apollo + AI |
-| Email validation | Same cascade | Same cascade |
-| Email generation | Website-personalized | Template-based |
-| Target use case | HealthTalk AI, similar clients | ILD internal campaigns |
+| Owner discovery | Skipped — client provides | Automated via Apollo + AI |
+| Email generation | Gemini 2.5 Flash (Vertex AI) | Gemini 2.5 Flash |
+| Target use case | HealthTalk AI, client campaigns | ILD internal outbound |
 
 ---
 
 ## Tech Stack
 
-- **Language:** Python 3.11
-- **Database:** PostgreSQL (Cloud SQL @ `34.46.61.90`, db `leadgen_db`)
-- **AI:** Claude Haiku (website insight extraction, email review) + Claude Sonnet (email generation)
-- **Email Validation:** LeadMagic → Million Verifier cascade
-- **Cold Email Platform:** Instantly.ai v2 API
-- **Web Scraping:** Scrapling (`enrichment/website_scraper.py`)
-- **PDF Export:** fpdf2 with Calibri TrueType font
+| Layer | Tool |
+|---|---|
+| Language | Python 3.11 |
+| Database | PostgreSQL — Cloud SQL @ `34.46.61.90` (`leadgen_db`) |
+| AI — Email Generation | Gemini 2.5 Flash via Vertex AI (`autotrader-ild` project) |
+| AI — Insight Extraction / Review | Claude Haiku 4.5 |
+| Email Validation | LeadMagic → Million Verifier cascade |
+| Cold Email Platform | Instantly.ai v2 API |
+| Web Scraping | Scrapling (`enrichment/website_scraper.py`) |
+| PDF Preview Export | fpdf2 + Calibri TrueType |
 
 ---
 
@@ -63,45 +65,47 @@ Client Excel/CSV
 ```
 cold-email-infra/
 │
-├── db.py                          # Postgres connection + all DB queries
-├── config.py                      # Env vars, constants
+├── db.py                              # Postgres connection + all DB helpers
+├── config.py                          # Env vars, model names, constants
 ├── requirements.txt
 │
 ├── ingestion/
-│   ├── csv_importer.py            # Import leads from .csv or .xlsx
-│   ├── apollo_client.py           # Apollo.io people search
-│   ├── apify_client.py            # Apify actor runner (GMaps etc.)
-│   ├── source_router.py           # Route niche+geo to best lead source
-│   └── deduplicator.py            # Dedup on domain + name + location
+│   ├── csv_importer.py                # Import leads from .csv or .xlsx
+│   ├── apollo_client.py               # Apollo.io people search
+│   ├── apify_client.py                # Apify actor runner (GMaps etc.)
+│   ├── source_router.py               # Route niche + geo to best lead source
+│   └── deduplicator.py                # Dedup on domain + name + location
 │
 ├── enrichment/
-│   ├── website_scraper.py         # Scrape practice website → text
-│   ├── ai_extractor.py            # Haiku: extract insights from scraped text
-│   ├── email_waterfall.py         # Find emails via LeadMagic / Apollo
-│   ├── owner_discovery.py         # Discover practice owner name
-│   └── enrichment_engine.py      # Orchestrate enrichment steps
+│   ├── website_scraper.py             # Scrape practice website → raw text
+│   ├── ai_extractor.py                # Haiku: extract key insights from scraped text
+│   ├── email_waterfall.py             # Find emails via LeadMagic / Apollo
+│   ├── owner_discovery.py             # Discover practice owner name
+│   └── enrichment_engine.py          # Orchestrate enrichment steps
 │
 ├── validation/
-│   ├── cascade_validator.py       # LeadMagic → MV fallback, sets email_verdict
-│   ├── leadmagic_client.py        # LeadMagic API wrapper
-│   └── million_verifier_client.py # Million Verifier API wrapper
+│   ├── cascade_validator.py           # LeadMagic → MV fallback, sets email_verdict
+│   ├── leadmagic_client.py            # LeadMagic API wrapper
+│   └── million_verifier_client.py     # Million Verifier API wrapper
 │
 ├── generation/
-│   ├── email_generator.py         # generate_personalized_sequence() — main entry point
-│   └── knowledge_base.py          # Campaign brief / case study store
+│   ├── email_generator.py             # generate_batch() — main generation entry point
+│   └── knowledge_base.py              # Campaign brief / case study store
 │
 ├── campaigns/
-│   ├── instantly_client.py        # Instantly v2 API wrapper
-│   ├── campaign_launcher.py       # Sync validated leads + sequences → Instantly
-│   ├── campaign_monitor.py        # Monitor campaign health
-│   └── client_manager.py          # Multi-client API key management
+│   ├── instantly_client.py            # Instantly v2 API wrapper
+│   ├── campaign_launcher.py           # Sync leads + sequences → Instantly
+│   ├── campaign_monitor.py            # Monitor campaign health metrics
+│   └── client_manager.py             # Multi-client Instantly API key management
 │
 └── tests/
-    ├── run_healthtalk_campaigns.py      # Main runner: import → validate → generate → launch
-    ├── personalize_obgyn_batch.py       # 10-at-a-time personalized email batch generator
-    ├── push_obgyn_sequences_to_instantly.py  # Push email content to Instantly as custom vars
-    ├── export_batch_pdf.py              # Export batch previews to PDF
-    └── run_plastic_surgeons_florida.py  # Florida plastic surgeon campaign runner
+    ├── run_healthtalk_campaigns.py         # Main runner: import → validate → generate → push
+    ├── run_ortho_batch.py                  # Orthopedics batch runner (5 leads at a time)
+    ├── personalize_obgyn_batch.py          # 10-at-a-time personalized OBGYN email batch
+    ├── push_obgyn_sequences_to_instantly.py  # Push email content → Instantly custom variables
+    ├── apply_client_edits.py               # Apply exact client-provided text edits to sequences
+    ├── apply_global_edits.py               # Campaign-wide regex edits across all sequences
+    └── export_batch_pdf.py                 # Export batch previews to PDF for review
 ```
 
 ---
@@ -116,24 +120,34 @@ pip install -r requirements.txt
 
 ### 2. Configure environment
 
-Copy `.env.example` to `.env` and fill in your values:
+Copy `.env.example` to `.env`:
 
-```
+```env
+# Database
 DB_HOST=34.46.61.90
 DB_NAME=leadgen_db
 DB_USER=...
 DB_PASSWORD=...
 
-ANTHROPIC_API_KEY=...
+# AI
+ANTHROPIC_API_KEY=...          # Haiku (insight extraction + review)
+
+# Gemini Flash — email generation (~80x cheaper than Sonnet)
+GEMINI_EMAIL_GENERATION=true
+GOOGLE_GENAI_USE_VERTEXAI=True
+GOOGLE_CLOUD_PROJECT=autotrader-ild
+GOOGLE_CLOUD_LOCATION=global
+
+# Email validation
 LEADMAGIC_API_KEY=...
 MILLION_VERIFIER_API_KEY=...
 ```
 
-The Instantly API key is stored **per-client in the DB** (`clients.instantly_api_key`), not in `.env`.
+> **Note:** The Instantly API key is stored **per-client in the DB** (`clients.instantly_api_key`), not in `.env`. This keeps HTAI and ILD accounts cleanly separated.
 
 ---
 
-## Running the HealthTalk AI Pipeline
+## Running Campaigns
 
 ### Full campaign run (import → validate → generate → push)
 
@@ -141,10 +155,23 @@ The Instantly API key is stored **per-client in the DB** (`clients.instantly_api
 python -m tests.run_healthtalk_campaigns --sheets "OBGYN" --sender "Alex"
 ```
 
-### Generate personalized emails (10 at a time, review before saving)
+### Add Orthopedics leads in batches
 
 ```bash
-# Preview batch — no DB changes
+# Next 5 leads (auto-detects offset)
+python -m tests.run_ortho_batch
+
+# Explicit offset
+python -m tests.run_ortho_batch --offset 13 --count 5
+
+# Dry run preview only
+python -m tests.run_ortho_batch --dry-run
+```
+
+### Generate personalized OBGYN emails (10 at a time)
+
+```bash
+# Preview — no DB changes
 python -m tests.personalize_obgyn_batch --offset 0 --batch-size 10
 
 # Save after reviewing
@@ -154,42 +181,39 @@ python -m tests.personalize_obgyn_batch --offset 0 --save
 python -m tests.personalize_obgyn_batch --offset 10 --save
 ```
 
+### Push email sequences to Instantly
+
+```bash
+# Dry run — show counts only
+python -m tests.push_obgyn_sequences_to_instantly --dry-run \
+  --campaign <db-campaign-id> \
+  --instantly-campaign <instantly-campaign-id>
+
+# Full push
+python -m tests.push_obgyn_sequences_to_instantly \
+  --campaign <db-campaign-id> \
+  --instantly-campaign <instantly-campaign-id>
+```
+
 ### Export batch to PDF for review
 
 ```bash
 python -m tests.export_batch_pdf --offset 0 --batch-size 10
 ```
 
-### Push email sequences to Instantly
-
-```bash
-# Dry run — show counts only
-python -m tests.push_obgyn_sequences_to_instantly --dry-run
-
-# Full push
-python -m tests.push_obgyn_sequences_to_instantly
-```
-
 ---
 
-## How Personalized Emails Work
+## Instantly API — Critical Notes
 
-Each lead gets a unique 3-email sequence generated by AI:
+### 1. Custom variables must be nested
 
-1. **Website scraping** — `enrichment/website_scraper.py` scrapes the practice website
-2. **Insight extraction** — Claude Haiku pulls 3–5 key facts (doctor name, specialties, practice philosophy, tech, milestones)
-3. **Sequence generation** — Claude Sonnet writes 3 emails using those insights + the campaign brief (case studies, value props)
-4. **Review pass** — Claude Haiku checks tone, accuracy, and personalization quality
-5. **Stored in DB** — `email_sequences` table, status `draft`
-6. **Pushed to Instantly** — each lead's emails stored as Instantly custom variables
-
-### Instantly Integration (Important API Note)
-
-Campaign template uses `{{email_1_body}}`, `{{email_2_body}}`, etc. — Instantly substitutes per-lead values at send time.
-
-Per-lead values are stored via `PATCH /api/v2/leads/{id}` with this exact format:
+`PATCH /api/v2/leads/{id}` with flat keys returns HTTP 200 but **silently ignores** the values:
 
 ```json
+// ❌ WRONG — silently ignored
+{ "email_1_subject": "...", "email_1_body": "..." }
+
+// ✅ CORRECT — must nest under custom_variables
 {
   "custom_variables": {
     "email_1_subject": "...",
@@ -202,27 +226,64 @@ Per-lead values are stored via `PATCH /api/v2/leads/{id}` with this exact format
 }
 ```
 
-> **Warning:** Sending these as flat keys (not nested under `custom_variables`) returns HTTP 200 but silently ignores the values. Always use the nested format.
+### 2. Campaign filter doesn't work server-side
+
+`POST /api/v2/leads/list` with `campaign_id` in the body does **not** filter results — it returns all workspace leads. Always filter client-side:
+
+```python
+if item.get("campaign") == campaign_id:
+    mapping[item["email"]] = item["id"]
+```
+
+### 3. Campaign sequence template
+
+Set once per campaign via `PATCH /api/v2/campaigns/{id}`:
+
+```json
+{
+  "sequences": [{
+    "steps": [
+      {"type": "email", "delay": 0, "variants": [{"subject": "{{email_1_subject}}", "body": "{{email_1_body}}"}]},
+      {"type": "email", "delay": 3, "variants": [{"subject": "{{email_2_subject}}", "body": "{{email_2_body}}"}]},
+      {"type": "email", "delay": 7, "variants": [{"subject": "{{email_3_subject}}", "body": "{{email_3_body}}"}]}
+    ]
+  }]
+}
+```
 
 ---
 
 ## Active Campaigns
 
-| Specialty | DB Campaign ID | Instantly Campaign ID | Status |
-|-----------|---------------|----------------------|--------|
-| OBGYN | `b3fafa6f-623d-4c55-a475-0dc6ddfc5e6e` | `735ef703-d8ea-44d1-aa0a-d9356ebfd8eb` | 575 leads pushed ✅ |
+| Specialty | Client | DB Campaign ID | Instantly Campaign ID | Leads Synced |
+|-----------|--------|---------------|----------------------|-------------|
+| Dentist Outreach | ILD | `929bebd1-c12d-4417-a17e-3b8ace142b3c` | `177d22e9-7e96-4287-835b-ab1d22d2d7bb` | 3,440 ✅ |
+| OBGYN | HTAI | `b3fafa6f-623d-4c55-a475-0dc6ddfc5e6e` | `735ef703-d8ea-44d1-aa0a-d9356ebfd8eb` | 592 ✅ |
+| Orthopedics | HTAI | `831c7077-b3a6-42d4-9262-f70aa9ecd194` | `6c3db052-4e7a-49e1-8139-c218b44c88b3` | 4 (in progress) |
 
 ---
 
 ## Cost Estimate (per lead)
 
-| Step | Cost |
-|------|------|
-| LeadMagic email validation | $0.010 |
-| Million Verifier fallback (~50%) | $0.001 |
-| Website scraping | free |
-| Claude Sonnet email generation | $0.040 |
-| Claude Haiku review | $0.003 |
-| **Total** | **~$0.054** |
+| Step | Old Cost (Sonnet) | New Cost (Gemini Flash) |
+|------|-------------------|------------------------|
+| LeadMagic email validation | $0.010 | $0.010 |
+| Million Verifier fallback (~50%) | $0.001 | $0.001 |
+| Website scraping | free | free |
+| Email generation (3-sequence) | $0.040 | $0.0005 |
+| Review pass | $0.003 | $0.0001 |
+| **Total per lead** | **~$0.054** | **~$0.012** |
 
-592 OBGYN leads ≈ **$32 total**
+> Switched to Gemini 2.5 Flash via Vertex AI on 2026-04-23 — ~80x cheaper on generation.  
+> Enable with `GEMINI_EMAIL_GENERATION=true` in `.env`.
+
+---
+
+## How Personalized Emails Are Generated
+
+1. **Website scraping** — `enrichment/website_scraper.py` scrapes the practice website
+2. **Insight extraction** — Claude Haiku pulls 3–5 key facts (doctor name, specialties, practice philosophy, tech, milestones)
+3. **Sequence generation** — Gemini 2.5 Flash writes a 3-email sequence using those insights + campaign brief (case studies, value props)
+4. **Review pass** — Claude Haiku checks tone, accuracy, and personalization quality
+5. **Stored in DB** — `email_sequences` table with status `draft`
+6. **Pushed to Instantly** — per-lead content stored as custom variables, substituted at send time
