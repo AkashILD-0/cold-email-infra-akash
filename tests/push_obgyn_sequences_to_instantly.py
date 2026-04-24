@@ -64,6 +64,7 @@ def get_leads_with_sequences(campaign_id: str) -> list:
                 WHERE l.campaign_id = %s
                   AND l.email_verdict = 'SEND'
                   AND l.enrichment_status = 'validated'
+                  AND es.status IN ('draft', 'ready')
                 ORDER BY l.ingested_at ASC
             """, (campaign_id,))
             return [dict(r) for r in cur.fetchall()]
@@ -118,6 +119,7 @@ def setup_campaign_sequences(instantly: InstantlyClient, instantly_campaign_id: 
 def build_email_to_id_map(instantly: InstantlyClient, campaign_id: str) -> dict:
     """Paginate through leads in the campaign and return {email: instantly_lead_id}.
     Filters by campaign_id to avoid matching leads from other campaigns."""
+    import time
     mapping = {}
     starting_after = None
     page = 0
@@ -125,17 +127,25 @@ def build_email_to_id_map(instantly: InstantlyClient, campaign_id: str) -> dict:
         body = {"limit": 100, "campaign_id": campaign_id}
         if starting_after:
             body["starting_after"] = starting_after
-        try:
-            resp = requests.post(
-                f"{InstantlyClient.BASE_URL}/leads/list",
-                headers=instantly._headers(),
-                json=body,
-                timeout=30
-            )
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            logger.error(f"Lead list page {page} error: {e}")
+        retries = 3
+        data = None
+        for attempt in range(retries):
+            try:
+                resp = requests.post(
+                    f"{InstantlyClient.BASE_URL}/leads/list",
+                    headers=instantly._headers(),
+                    json=body,
+                    timeout=30
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except Exception as e:
+                logger.warning(f"Lead list page {page} attempt {attempt+1} error: {e}")
+                if attempt < retries - 1:
+                    time.sleep(2)
+        if data is None:
+            logger.error(f"Failed page {page} after {retries} attempts, stopping.")
             break
 
         items = data.get("items", [])
@@ -150,6 +160,36 @@ def build_email_to_id_map(instantly: InstantlyClient, campaign_id: str) -> dict:
             break
 
     return mapping
+
+
+def add_lead_to_instantly(instantly: InstantlyClient, instantly_campaign_id: str, lead: dict) -> bool:
+    """POST a new lead to Instantly with email content as custom variables."""
+    try:
+        resp = requests.post(
+            f"{InstantlyClient.BASE_URL}/leads",
+            headers=instantly._headers(),
+            json={
+                "campaign_id": instantly_campaign_id,
+                "email": lead.get("email", ""),
+                "custom_variables": {
+                    "email_1_subject": lead.get("email_1_subject", ""),
+                    "email_1_body":    lead.get("email_1_body", ""),
+                    "email_2_subject": lead.get("email_2_subject", ""),
+                    "email_2_body":    lead.get("email_2_body", ""),
+                    "email_3_subject": lead.get("email_3_subject", ""),
+                    "email_3_body":    lead.get("email_3_body", ""),
+                    "city":            lead.get("city", ""),
+                    "state":           lead.get("state", ""),
+                    "business_name":   lead.get("business_name", ""),
+                },
+            },
+            timeout=30
+        )
+        resp.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"POST error ({lead.get('email')}): {e}")
+        return False
 
 
 def patch_lead_sequences(instantly: InstantlyClient, lead_id: str, lead: dict) -> bool:
@@ -236,35 +276,40 @@ def main():
     email_to_id = build_email_to_id_map(instantly, args.instantly_campaign)
     print(f"  Found {len(email_to_id)} leads in campaign.")
 
-    # Step 3: PATCH each lead with personalized email content
-    print(f"\nPatching {len(leads)} leads with email content...")
-    pushed = 0
+    # Step 3: PATCH existing leads or POST new ones
+    print(f"\nPushing {len(leads)} leads to Instantly...")
+    patched = 0
+    added = 0
     errors = 0
-    not_found = 0
     synced_ids = []
 
     for i, lead in enumerate(leads, 1):
         lead_email = lead.get("email", "")
         instantly_id = email_to_id.get(lead_email)
-        if not instantly_id:
-            not_found += 1
-            continue
-        success = patch_lead_sequences(instantly, instantly_id, lead)
-        if success:
-            pushed += 1
-            synced_ids.append(str(lead["lead_id"]))
+        if instantly_id:
+            success = patch_lead_sequences(instantly, instantly_id, lead)
+            if success:
+                patched += 1
+                synced_ids.append(str(lead["lead_id"]))
+            else:
+                errors += 1
         else:
-            errors += 1
+            success = add_lead_to_instantly(instantly, args.instantly_campaign, lead)
+            if success:
+                added += 1
+                synced_ids.append(str(lead["lead_id"]))
+            else:
+                errors += 1
 
         if i % 50 == 0 or i == len(leads):
-            print(f"  [{i}/{len(leads)}] Patched: {pushed}, Not found: {not_found}, Errors: {errors}")
+            print(f"  [{i}/{len(leads)}] Patched: {patched}, Added: {added}, Errors: {errors}")
 
     # Step 3: Mark all successfully pushed sequences as synced
     if synced_ids:
         mark_synced(synced_ids, args.campaign)
         print(f"\nMarked {len(synced_ids)} sequences as synced in DB.")
 
-    print(f"\nDone. {pushed} leads patched, {not_found} not found in workspace, {errors} errors.")
+    print(f"\nDone. {patched} patched, {added} added new, {errors} errors.")
     print(f"Review at: https://app.instantly.ai/campaign/{args.instantly_campaign}")
 
 
